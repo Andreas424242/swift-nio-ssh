@@ -673,7 +673,7 @@ private extension SSHChildChannel {
             case .data(let data):
                 // We only futz with the window manager if the channel is not already closed.
                 // Also guard against nil remoteChannelIdentifier during channel teardown.
-                if !self.didClose,
+                if !self.didClose, self.state.canSendWindowAdjust,
                    let recipientChannel = self.state.remoteChannelIdentifier,
                    let increment = self.windowManager.unbufferBytes(data.data.readableBytes) {
                     let update = SSHMessage.ChannelWindowAdjustMessage(recipientChannel: recipientChannel, bytesToAdd: UInt32(increment))

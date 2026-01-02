@@ -609,6 +609,16 @@ extension ChildChannelStateMachine {
         }
     }
 
+    /// Whether we can send a window adjust message in the current state.
+    var canSendWindowAdjust: Bool {
+        switch self.state {
+        case .active, .halfClosedLocal, .halfClosedRemote, .quiescent:
+            return true
+        case .idle, .requestedLocally, .requestedRemotely, .closedLocally, .closedRemotely, .closed:
+            return false
+        }
+    }
+
     /// The local identifier for this channel. We always know this identifier.
     var localChannelIdentifier: UInt32 {
         switch self.state {
