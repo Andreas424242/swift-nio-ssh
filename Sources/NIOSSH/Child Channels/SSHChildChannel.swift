@@ -979,6 +979,11 @@ extension SSHChildChannel {
     }
 
     private func handleOutboundChannelWindowAdjust(_ message: SSHMessage.ChannelWindowAdjustMessage, _ promise: EventLoopPromise<Void>?) throws {
+        // Guard against race condition: state may have changed since window adjust was queued
+        guard self.state.canSendWindowAdjust else {
+            promise?.succeed(())
+            return
+        }
         try self.state.sendChannelWindowAdjust(message)
         self.pendingWritesForMultiplexer.append((.channelWindowAdjust(message), promise))
     }
