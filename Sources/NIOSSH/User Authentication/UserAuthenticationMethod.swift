@@ -208,7 +208,7 @@ extension SSHMessage.UserAuthRequestMessage {
 }
 
 /// The outcome of a user authentication attempt.
-public enum NIOSSHUserAuthenticationOutcome {
+public enum NIOSSHUserAuthenticationOutcome: Sendable {
     case success
     case partialSuccess(remainingMethods: NIOSSHAvailableUserAuthenticationMethods)
     case failure
