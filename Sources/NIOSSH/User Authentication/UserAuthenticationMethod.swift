@@ -14,7 +14,7 @@
 import NIOCore
 
 /// The user authentication modes available at this point in time.
-public struct NIOSSHAvailableUserAuthenticationMethods: OptionSet {
+public struct NIOSSHAvailableUserAuthenticationMethods: OptionSet, Sendable {
     public var rawValue: UInt8
 
     public init(rawValue: UInt8) {

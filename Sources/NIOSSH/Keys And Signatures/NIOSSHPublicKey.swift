@@ -283,14 +283,14 @@ internal var customKeyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Ty
 }
 
 private enum _CustomAlgorithms {
-    static var transportProtectionSchemesLock = NIOLock()
-    static var transportProtectionSchemes = [NIOSSHTransportProtection.Type]()
-    static var keyExchangeAlgorithmsLock = NIOLock()
-    static var keyExchangeAlgorithms = [NIOSSHKeyExchangeAlgorithmProtocol.Type]()
-    static var publicKeyAlgorithmsLock = NIOLock()
-    static var publicKeyAlgorithms: [NIOSSHPublicKeyProtocol.Type] = []
-    static var signaturesLock = NIOLock()
-    static var signatures: [NIOSSHSignatureProtocol.Type] = []
+    nonisolated(unsafe) static var transportProtectionSchemesLock = NIOLock()
+    nonisolated(unsafe) static var transportProtectionSchemes = [NIOSSHTransportProtection.Type]()
+    nonisolated(unsafe) static var keyExchangeAlgorithmsLock = NIOLock()
+    nonisolated(unsafe) static var keyExchangeAlgorithms = [NIOSSHKeyExchangeAlgorithmProtocol.Type]()
+    nonisolated(unsafe) static var publicKeyAlgorithmsLock = NIOLock()
+    nonisolated(unsafe) static var publicKeyAlgorithms: [NIOSSHPublicKeyProtocol.Type] = []
+    nonisolated(unsafe) static var signaturesLock = NIOLock()
+    nonisolated(unsafe) static var signatures: [NIOSSHSignatureProtocol.Type] = []
 }
 
 extension NIOSSHPublicKey.BackingKey: Equatable {

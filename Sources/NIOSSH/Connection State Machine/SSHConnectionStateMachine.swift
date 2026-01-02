@@ -69,7 +69,7 @@ struct SSHConnectionStateMachine {
     
     var username: String? { attributes.username }
 
-    static let bundledTransportProtectionSchemes: [NIOSSHTransportProtection.Type] = [
+    nonisolated(unsafe) static let bundledTransportProtectionSchemes: [NIOSSHTransportProtection.Type] = [
         AES256GCMOpenSSHTransportProtection.self, AES128GCMOpenSSHTransportProtection.self,
     ]
 
