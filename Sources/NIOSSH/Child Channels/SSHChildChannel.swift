@@ -386,36 +386,43 @@ extension SSHChildChannel: Channel, ChannelCore {
         self._actuallyTriggerOutboundEvent0(event, promise: promise)
     }
 
+
     private func _actuallyTriggerOutboundEvent0(_ event: Any, promise: EventLoopPromise<Void>?) {
+        // Guard against nil remoteChannelIdentifier during channel teardown.
+        guard let recipientChannel = self.state.remoteChannelIdentifier else {
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
+        
         // There is no flush for user outbound events, so they're expensive. For now we live
         // with that.
         let message: SSHMessage
 
         switch event {
         case let event as SSHChannelRequestEvent.ExecRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.EnvironmentRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.ExitStatus:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.PseudoTerminalRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.ShellRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.ExitSignal:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.SubsystemRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.WindowChangeRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.LocalFlowControlRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case let event as SSHChannelRequestEvent.SignalRequest:
-            message = SSHMessage(event, recipientChannel: self.state.remoteChannelIdentifier!)
+            message = SSHMessage(event, recipientChannel: recipientChannel)
         case is ChannelSuccessEvent:
-            message = .channelSuccess(.init(recipientChannel: self.state.remoteChannelIdentifier!))
+            message = .channelSuccess(.init(recipientChannel: recipientChannel))
         case is ChannelFailureEvent:
-            message = .channelFailure(.init(recipientChannel: self.state.remoteChannelIdentifier!))
+            message = .channelFailure(.init(recipientChannel: recipientChannel))
         default:
             promise?.fail(ChannelError.operationUnsupported)
             return
@@ -424,7 +431,8 @@ extension SSHChildChannel: Channel, ChannelCore {
         self.processOutboundMessage(message, promise: promise)
         self.writePendingToMultiplexer()
     }
-
+    
+    
     public func channelRead0(_: NIOAny) {
         // do nothing
     }
@@ -484,17 +492,22 @@ extension SSHChildChannel: Channel, ChannelCore {
         // We need to work out what we need to do once the initializer completes.
         self.userActivatePromise = userPromise
 
+       
         if self.state.isActiveOnNetwork {
             // We need to send a channelOpenSuccess.
+            guard let recipientChannel = self.state.remoteChannelIdentifier else {
+                return
+            }
             let message = SSHMessage.ChannelOpenConfirmationMessage(
-                recipientChannel: self.state.remoteChannelIdentifier!,
+                recipientChannel: recipientChannel,
                 senderChannel: self.state.localChannelIdentifier,
                 initialWindowSize: self.windowManager.targetWindowSize,
                 maximumPacketSize: 1 << 24
             )  // This is a weirdly hard-coded choice.
             self.processOutboundMessage(.channelOpenConfirmation(message), promise: nil)
             self.writePendingToMultiplexer()
-        } else if !self.state.isClosed {
+        }
+        else if !self.state.isClosed {
             // We need to request the channel. We must have the channel by now.
             let message = SSHMessage.ChannelOpenMessage(
                 type: .init(self.type!),
@@ -512,9 +525,10 @@ extension SSHChildChannel: Channel, ChannelCore {
 
     private func initializerFailed(error: Error) {
         // Tell the remote peer to go away.
-        if self.state.isActiveOnNetwork {
+        if self.state.isActiveOnNetwork,
+           let recipientChannel = self.state.remoteChannelIdentifier {
             let message = SSHMessage.ChannelOpenFailureMessage(
-                recipientChannel: self.state.remoteChannelIdentifier!,
+                recipientChannel: recipientChannel,
                 reasonCode: 2,
                 description: "",
                 language: "en-US"
@@ -525,10 +539,12 @@ extension SSHChildChannel: Channel, ChannelCore {
             self.errorEncountered(error: error)
         }
     }
+    
 
     /// Called when the channel was closed from the pipeline while the stream is still open.
     ///
     /// Will emit a `SSH_MSG_CHANNEL_CLOSE` to close the channel.
+
     private func closedWhileOpen() {
         precondition(!self.state.isClosed)
 
@@ -537,11 +553,16 @@ extension SSHChildChannel: Channel, ChannelCore {
             return
         }
 
-        let message = SSHMessage.ChannelCloseMessage(recipientChannel: self.state.remoteChannelIdentifier!)
+        guard let recipientChannel = self.state.remoteChannelIdentifier else {
+            // Channel identifier already cleared, nothing to send.
+            return
+        }
+
+        let message = SSHMessage.ChannelCloseMessage(recipientChannel: recipientChannel)
         self.processOutboundMessage(.channelClose(message), promise: nil)
         self.writePendingToMultiplexer()
     }
-
+    
     private func closedCleanly() {
         precondition(!self.state.isActiveOnNetwork)
 
@@ -601,12 +622,13 @@ extension SSHChildChannel: Channel, ChannelCore {
         self.notifyChannelInactive()
 
         // Ok, we need to notify the network that we're done.
-        if self.state.isActiveOnNetwork, !self.state.sentClose {
-            let message = SSHMessage.ChannelCloseMessage(recipientChannel: self.state.remoteChannelIdentifier!)
+        if self.state.isActiveOnNetwork, !self.state.sentClose,
+           let recipientChannel = self.state.remoteChannelIdentifier {
+            let message = SSHMessage.ChannelCloseMessage(recipientChannel: recipientChannel)
             self.processOutboundMessage(.channelClose(message), promise: nil)
             self.writePendingToMultiplexer()
         }
-
+        
         self.eventLoop.execute {
             self.removeHandlers(pipeline: self.pipeline)
             self.closePromise.fail(error)
@@ -667,15 +689,18 @@ extension SSHChildChannel {
         self.pipeline.fireChannelReadComplete()
     }
 
+
     private func deliverSingleRead(_ data: PendingContent) {
         switch data {
         case .data(let data):
             // We only futz with the window manager if the channel is not already closed.
+            // Also guard against nil remoteChannelIdentifier during channel teardown.
             if !self.didClose, !self.state.sentClose,
+                let recipientChannel = self.state.remoteChannelIdentifier,
                 let increment = self.windowManager.unbufferBytes(data.data.readableBytes)
             {
                 let update = SSHMessage.ChannelWindowAdjustMessage(
-                    recipientChannel: self.state.remoteChannelIdentifier!,
+                    recipientChannel: recipientChannel,
                     bytesToAdd: UInt32(increment)
                 )
                 self.processOutboundMessage(.channelWindowAdjust(update), promise: nil)
@@ -686,7 +711,7 @@ extension SSHChildChannel {
             self.pipeline.fireUserInboundEventTriggered(ChannelEvent.inputClosed)
         }
     }
-
+    
     /// Delivers all pending flushed writes to the parent channel.
     private func deliverPendingWrites() {
         while self.pendingWritesFromChannel.hasMark, self.writabilityManager.windowSpaceOnNetwork > 0,
@@ -794,6 +819,7 @@ extension SSHChildChannel {
         )
     }
 
+
     private func handleInboundChannelEOF(_ message: SSHMessage.ChannelEOFMessage) throws {
         try self.state.receiveChannelEOF(message)
 
@@ -805,10 +831,14 @@ extension SSHChildChannel {
         } else {
             // We don't support remote half-closure. That puts us in a bit of a bind. We have to promote this up to full-closure.
             // We need to send a channel close, so let's just do that: the outbound state machine will make this a full-closure.
-            let closeMessage = SSHMessage.channelClose(.init(recipientChannel: self.state.remoteChannelIdentifier!))
+            guard let recipientChannel = self.state.remoteChannelIdentifier else {
+                return
+            }
+            let closeMessage = SSHMessage.channelClose(.init(recipientChannel: recipientChannel))
             self.processOutboundMessage(closeMessage, promise: nil)
         }
     }
+    
 
     private func handleInboundChannelClose(_ message: SSHMessage.ChannelCloseMessage) throws {
         try self.state.receiveChannelClose(message)
@@ -818,11 +848,14 @@ extension SSHChildChannel {
             self.closedCleanly()
         } else {
             // We need to issue a close immediately.
-            let closeMessage = SSHMessage.channelClose(.init(recipientChannel: self.state.remoteChannelIdentifier!))
+            guard let recipientChannel = self.state.remoteChannelIdentifier else {
+                return
+            }
+            let closeMessage = SSHMessage.channelClose(.init(recipientChannel: recipientChannel))
             self.processOutboundMessage(closeMessage, promise: nil)
         }
     }
-
+    
     private func handleInboundChannelWindowAdjust(_ message: SSHMessage.ChannelWindowAdjustMessage) throws {
         try self.state.receiveChannelWindowAdjust(message)
         if case .changed(let newValue) = try self.writabilityManager.outboundWindowIncremented(message.bytesToAdd) {
@@ -850,6 +883,7 @@ extension SSHChildChannel {
         self.pendingReads.append(.data(.init(message)))
     }
 
+
     private func handleInboundChannelRequest(_ message: SSHMessage.ChannelRequestMessage) throws {
         try self.state.receiveChannelRequest(message)
 
@@ -857,12 +891,14 @@ extension SSHChildChannel {
             self.pipeline.fireUserInboundEventTriggered(userEvent)
         } else if message.wantReply {
             // Messages that we don't understand and that want a reply must be replied to with a failure.
-            // We can force-unwrap here because we must have a remote channel identifier to have received a request.
-            let replyMessage = SSHMessage.channelFailure(.init(recipientChannel: self.state.remoteChannelIdentifier!))
+            guard let recipientChannel = self.state.remoteChannelIdentifier else {
+                return
+            }
+            let replyMessage = SSHMessage.channelFailure(.init(recipientChannel: recipientChannel))
             self.processOutboundMessage(replyMessage, promise: nil)
         }
     }
-
+    
     private func handleInboundChannelSuccess(_ message: SSHMessage.ChannelSuccessMessage) throws {
         try self.state.receiveChannelSuccess(message)
         self.pipeline.fireUserInboundEventTriggered(ChannelSuccessEvent())
@@ -923,7 +959,11 @@ extension SSHChildChannel {
 
     /// A helper function for transforming `SSHChannelData` into `SSHMessage`s before processing.
     private func processOutboundMessage(_ content: PendingContent, promise: EventLoopPromise<Void>?) {
-        let recipientChannel = self.state.remoteChannelIdentifier!
+        guard let recipientChannel = self.state.remoteChannelIdentifier else {
+            // Channel is closing, message is no longer relevant.
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
 
         switch content {
         case .data(let message):
@@ -932,6 +972,7 @@ extension SSHChildChannel {
             self.processOutboundMessage(.channelEOF(.init(recipientChannel: recipientChannel)), promise: promise)
         }
     }
+    
 
     private func handleOutboundChannelOpen(
         _ message: SSHMessage.ChannelOpenMessage,
