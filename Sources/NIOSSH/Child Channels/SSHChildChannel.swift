@@ -989,12 +989,22 @@ extension SSHChildChannel {
     }
 
     private func handleOutboundChannelData(_ message: SSHMessage.ChannelDataMessage, _ promise: EventLoopPromise<Void>?) throws {
+        // Guard against race condition: state may have changed
+        guard self.state.canSendWindowAdjust else {
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
         // Validate this data in the state machine.
         try self.state.sendChannelData(message)
         self.pendingWritesForMultiplexer.append((.channelData(message), promise))
     }
 
     private func handleOutboundChannelExtendedData(_ message: SSHMessage.ChannelExtendedDataMessage, _ promise: EventLoopPromise<Void>?) throws {
+        // Guard against race condition: state may have changed
+        guard self.state.canSendWindowAdjust else {
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
         try self.state.sendChannelExtendedData(message)
         self.pendingWritesForMultiplexer.append((.channelExtendedData(message), promise))
     }
